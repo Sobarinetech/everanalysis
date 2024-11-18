@@ -151,6 +151,9 @@ if st.button("Generate RCA Insights"):
 
         # Escalation Pattern Detection
         st.write("### Escalation Patterns Over Time")
+        
+        # Ensure 'Sent Time' is parsed correctly as datetime
+        df['Sent Time'] = pd.to_datetime(df['Sent Time'], errors='coerce')
         df['Weekday'] = df['Sent Time'].dt.day_name()
         escalations_by_day = negative_emails.groupby('Weekday').size().sort_values(ascending=False)
         st.write("#### Escalations by Day of the Week:")
