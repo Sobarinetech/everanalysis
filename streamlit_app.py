@@ -2,21 +2,19 @@ import streamlit as st
 import google.generativeai as genai
 from email import message_from_string
 from datetime import datetime
-from io import BytesIO
 import pandas as pd
 from textblob import TextBlob
-import matplotlib.pyplot as plt
 import re
-import seaborn as sns
+import matplotlib.pyplot as plt
 
 # Configure the API key securely from Streamlit's secrets
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # Streamlit App UI
-st.title("Enterprise AI-Powered Data Storytelling")
+st.title("RCA and Escalation Analysis for Email Data")
 st.write("""
-An enterprise-grade solution for analyzing and transforming email data 
-into actionable insights and engaging narratives.
+A focused analysis tool to extract actionable insights from email data 
+to help with RCA and escalation analysis.
 """)
 
 # File Upload
@@ -29,244 +27,90 @@ uploaded_files = st.file_uploader(
 # Sentiment Analysis Function
 def analyze_sentiment(text):
     blob = TextBlob(text)
-    sentiment_score = blob.sentiment.polarity
-    if sentiment_score > 0:
-        return "Positive"
-    elif sentiment_score < 0:
-        return "Negative"
-    else:
-        return "Neutral"
+    return "Positive" if blob.sentiment.polarity > 0 else "Negative" if blob.sentiment.polarity < 0 else "Neutral"
 
-# Function to extract email body safely
+# Function to extract email body
 def extract_email_body(email):
-    """Extracts the email body, handling multipart emails and None content."""
     if email.is_multipart():
         for part in email.walk():
             content_type = part.get_content_type()
-            content_disposition = str(part.get("Content-Disposition"))
-
-            # Only process text/plain parts
-            if content_type == "text/plain" and "attachment" not in content_disposition:
+            if content_type == "text/plain":
                 try:
                     return part.get_payload(decode=True).decode(errors="ignore")
                 except:
                     continue
     else:
-        # Handle non-multipart emails
-        payload = email.get_payload()
-        if payload:
-            try:
-                return payload.decode(errors="ignore") if isinstance(payload, bytes) else payload
-            except:
-                pass
-    return "No content available."
-
-# Additional Features: Functions
-def keyword_analysis(body):
-    """Extract frequently occurring keywords."""
-    words = body.split()
-    keywords = pd.Series(words).value_counts().head(10)
-    return keywords
-
-def email_count_by_sender(df):
-    """Count emails grouped by sender."""
-    return df['From'].value_counts()
-
-def sentiment_distribution(sentiments):
-    """Visualize sentiment distribution."""
-    sentiment_df = pd.DataFrame(sentiments, columns=["Sentiment"])
-    distribution = sentiment_df["Sentiment"].value_counts()
-    return distribution
-
-def extract_domains(df):
-    """Extract domains from email addresses."""
-    df['Domain'] = df['From'].apply(lambda x: re.findall(r'@([A-Za-z0-9.-]+)', x)[0] if '@' in x else 'No Domain')
-    return df
-
-def email_length_distribution(df):
-    """Visualize the distribution of email body lengths."""
-    df["Body Length"] = df["Body"].apply(lambda x: len(x) if x else 0)
-    return df["Body Length"]
-
-def time_of_day_analysis(df):
-    """Analyze the time of day when emails are sent."""
-    df['Hour'] = pd.to_datetime(df['Sent Time']).dt.hour
-    time_of_day = df.groupby('Hour').size()
-    return time_of_day
-
-def most_common_words(body):
-    """Extract most common words in an email body."""
-    words = body.split()
-    return pd.Series(words).value_counts().head(10)
-
-def subject_length_distribution(df):
-    """Visualize the distribution of subject line lengths."""
-    df["Subject Length"] = df["Subject"].apply(lambda x: len(x) if x else 0)
-    return df["Subject Length"]
-
-def word_cloud(body):
-    """Generate a word cloud for email body text."""
-    from wordcloud import WordCloud
-    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(" ".join(body))
-    return wordcloud
-
-def email_activity_trend(df):
-    """Analyze email activity over time (by day)."""
-    df['Date'] = pd.to_datetime(df['Sent Time']).dt.date
-    activity_trend = df.groupby('Date').size()
-    return activity_trend
+        try:
+            return email.get_payload(decode=True).decode(errors="ignore")
+        except:
+            return "No content available."
 
 # Process Uploaded Files
-if st.button("Generate Enterprise Insights"):
+if st.button("Generate RCA Insights"):
     if not uploaded_files:
-        st.error("Please upload at least one file.")
+        st.error("Please upload at least one email file.")
     else:
-        try:
-            all_emails_summary = []
-            sentiment_data = []
+        all_emails_summary = []
+        sentiment_data = []
 
-            # Process each uploaded file
-            for file in uploaded_files:
-                content = file.read().decode("utf-8")
-                email = message_from_string(content)
-                
-                # Extract metadata
-                subject = email.get("Subject", "No Subject")
-                from_email = email.get("From", "Unknown Sender")
-                to_email = email.get("To", "Unknown Recipient")
-                sent_time = email.get("Date", "Unknown Date")
-                reply_to = email.get("Reply-To", "No Reply-To Address")
-                body = extract_email_body(email)
+        # Process each uploaded file
+        for file in uploaded_files:
+            content = file.read().decode("utf-8")
+            email = message_from_string(content)
+            subject = email.get("Subject", "No Subject")
+            from_email = email.get("From", "Unknown Sender")
+            sent_time = email.get("Date", "Unknown Date")
+            body = extract_email_body(email)
 
-                # Sentiment Analysis
-                sentiment = analyze_sentiment(body)
+            # Sentiment Analysis
+            sentiment = analyze_sentiment(body)
 
-                # Save data for summary and visualization
-                all_emails_summary.append({
-                    "Subject": subject,
-                    "From": from_email,
-                    "To": to_email,
-                    "Sent Time": sent_time,
-                    "Reply-To": reply_to,
-                    "Body": body,
-                    "Sentiment": sentiment
-                })
-                sentiment_data.append(sentiment)
+            # Append data for summary
+            all_emails_summary.append({
+                "Subject": subject,
+                "From": from_email,
+                "Sent Time": sent_time,
+                "Body": body,
+                "Sentiment": sentiment
+            })
+            sentiment_data.append(sentiment)
 
-            # Convert to DataFrame for visualization
-            df = pd.DataFrame(all_emails_summary)
+        # Convert to DataFrame for analysis
+        df = pd.DataFrame(all_emails_summary)
 
-            # Display email metadata
-            st.write("### Email Metadata")
-            st.dataframe(df)
+        # Sentiment Analysis
+        st.write("### Sentiment Analysis")
+        sentiment_counts = df['Sentiment'].value_counts()
+        fig, ax = plt.subplots()
+        sentiment_counts.plot(kind='bar', ax=ax, color=['green', 'yellow', 'red'])
+        ax.set_title('Sentiment Distribution')
+        ax.set_xlabel('Sentiment')
+        ax.set_ylabel('Count')
+        st.pyplot(fig)
 
-            # Generate Narrative with Gemini API
-            prompt = (
-                "Using the following email data, analyze for timing, replies, "
-                "sent details, sentiments, and create an engaging enterprise-level narrative:\n\n"
-                f"{df.to_string(index=False)}"
-            )
-            
-            # Load and configure the model
+        # Email Activity Over Time
+        st.write("### Email Activity Over Time")
+        df['Sent Time'] = pd.to_datetime(df['Sent Time'], errors='coerce')
+        activity_trend = df['Sent Time'].dt.date.value_counts().sort_index()
+        st.line_chart(activity_trend)
+
+        # Escalation Metrics
+        st.write("### Escalation Metrics")
+        escalations = df[df['Sentiment'] == 'Negative']
+        if not escalations.empty:
+            st.write("Escalations (Negative Sentiment Emails):")
+            st.dataframe(escalations)
+        else:
+            st.write("No negative sentiment emails found.")
+
+        # Extracting key RCA insights
+        if st.button("Extract RCA Insights"):
+            rca_insights = escalations[['Subject', 'From', 'Sent Time', 'Body']].to_dict(orient='records')
+            st.json(rca_insights)
+
+            # Generate RCA Narrative using Gemini API
+            prompt = f"Analyze these emails for root cause patterns and escalations:\n{rca_insights}"
             model = genai.GenerativeModel('gemini-1.5-flash')
-
-            # Generate response from the model
             response = model.generate_content(prompt)
-
-            # Extract and display the generated narrative
-            st.write("### AI-Generated Narrative:")
+            st.write("### RCA Narrative")
             st.write(response.text)
-
-            # 1. Keyword Analysis
-            st.write("### Frequently Occurring Keywords")
-            all_bodies = " ".join(df["Body"].dropna().tolist())
-            keywords = keyword_analysis(all_bodies)
-            st.bar_chart(keywords)
-
-            # 2. Email Count by Sender
-            st.write("### Email Count by Sender")
-            email_counts = email_count_by_sender(df)
-            st.bar_chart(email_counts)
-
-            # 3. Sentiment Distribution
-            st.write("### Sentiment Distribution")
-            sentiment_distribution_data = sentiment_distribution(sentiment_data)
-            st.bar_chart(sentiment_distribution_data)
-
-            # 4. Weekly Email Trends
-            st.write("### Weekly Email Trends")
-            df["Sent Time"] = pd.to_datetime(df["Sent Time"], errors="coerce")
-            df["Week"] = df["Sent Time"].dt.isocalendar().week
-            weekly_emails = df.groupby("Week").size()
-            st.line_chart(weekly_emails)
-
-            # 5. Top 5 Longest Emails
-            st.write("### Top 5 Longest Emails")
-            df["Body Length"] = df["Body"].apply(lambda x: len(x) if x else 0)
-            top_longest = df.nlargest(5, "Body Length")
-            st.dataframe(top_longest[["Subject", "From", "Body Length"]])
-
-            # 6. Customizable Filters
-            st.write("### Filter Emails by Sender")
-            unique_senders = df["From"].dropna().unique()
-            sender_filter = st.selectbox("Select a Sender to View Emails:", unique_senders)
-            filtered_emails = df[df["From"] == sender_filter]
-            st.dataframe(filtered_emails)
-
-            # 7. Export Filtered Emails to CSV
-            if st.button("Download Filtered Emails"):
-                filtered_output = BytesIO()
-                filtered_emails.to_csv(filtered_output, index=False)
-                filtered_output.seek(0)
-                st.download_button(
-                    label="Download Filtered Emails as CSV",
-                    data=filtered_output,
-                    file_name="filtered_emails.csv",
-                    mime="text/csv"
-                )
-
-            # 8. Reply Time Analysis
-            st.write("### Average Reply Time")
-            reply_times = df["Sent Time"].dropna().diff().mean()
-            st.write(f"Average Reply Time: {reply_times}")
-
-            # 9. Time-Zone Based Analysis
-            st.write("### Emails by Time Zone")
-            time_zones = df["Sent Time"].dt.tz_localize(None).dt.hour.value_counts()
-            st.bar_chart(time_zones)
-
-            # 10. Visualize Sentiment Over Time
-            st.write("### Sentiment Over Time")
-            df["Sentiment Score"] = df["Body"].apply(lambda x: TextBlob(x).sentiment.polarity if x else 0)
-            df["Date"] = df["Sent Time"].dt.date
-            sentiment_over_time = df.groupby("Date")["Sentiment Score"].mean()
-            st.line_chart(sentiment_over_time)
-
-            # 11. Domain Extraction Analysis
-            st.write("### Email Domains Breakdown")
-            df = extract_domains(df)
-            domain_counts = df["Domain"].value_counts()
-            st.bar_chart(domain_counts)
-
-            # 12. Email Length Distribution
-            st.write("### Email Body Length Distribution")
-            body_length_distribution = email_length_distribution(df)
-            st.histogram(body_length_distribution, bins=20)
-
-            # 13. Subject Length Distribution
-            st.write("### Subject Line Length Distribution")
-            subject_lengths = subject_length_distribution(df)
-            st.histogram(subject_lengths, bins=20)
-
-            # 14. Email Activity Over Time
-            st.write("### Email Activity Over Time")
-            activity_trend = email_activity_trend(df)
-            st.line_chart(activity_trend)
-
-            # 15. Word Cloud for Email Body
-            st.write("### Word Cloud for Email Body")
-            word_cloud_img = word_cloud(df["Body"].dropna().tolist())
-            st.image(word_cloud_img.to_array(), caption="Word Cloud", use_column_width=True)
-
-        except Exception as e:
-            st.error(f"Error processing the emails: {str(e)}")
