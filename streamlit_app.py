@@ -4,7 +4,6 @@ from email import message_from_string
 from datetime import datetime
 from io import BytesIO
 import pandas as pd
-import matplotlib.pyplot as plt
 from textblob import TextBlob
 
 # Configure the API key securely from Streamlit's secrets
@@ -19,8 +18,8 @@ into actionable insights and engaging narratives.
 
 # File Upload
 uploaded_files = st.file_uploader(
-    "Upload Email Files (supports .eml, .msg, .txt, or zip archives):", 
-    type=["eml", "msg", "txt", "zip"], 
+    "Upload Email Files (supports .eml, .msg, or .txt):", 
+    type=["eml", "msg", "txt"], 
     accept_multiple_files=True
 )
 
@@ -55,7 +54,7 @@ if st.button("Generate Enterprise Insights"):
                 to_email = email.get("To", "Unknown Recipient")
                 sent_time = email.get("Date", "Unknown Date")
                 reply_to = email.get("Reply-To", "No Reply-To Address")
-                body = email.get_payload()
+                body = email.get_payload(decode=True).decode(errors="ignore") if email.is_multipart() else email.get_payload()
 
                 # Sentiment Analysis
                 sentiment = analyze_sentiment(body)
@@ -74,11 +73,7 @@ if st.button("Generate Enterprise Insights"):
             # Convert to DataFrame for visualization
             df = pd.DataFrame(all_emails_summary)
 
-            # Generate Visual Insights
-            st.write("### Sentiment Analysis Breakdown")
-            sentiment_counts = pd.Series(sentiment_data).value_counts()
-            st.bar_chart(sentiment_counts)
-
+            # Display email metadata
             st.write("### Email Metadata")
             st.dataframe(df)
 
@@ -90,11 +85,8 @@ if st.button("Generate Enterprise Insights"):
             )
             response = genai.generate_text(model="models/text-bison-001", prompt=prompt)
 
-            # Ensure response.result is handled properly
-            if isinstance(response.result, list):
-                narrative = "\n".join(response.result)  # Join list items into a single string
-            else:
-                narrative = response.result  # Directly use as a string
+            # Ensure response.result is converted to a string
+            narrative = response.result if isinstance(response.result, str) else "\n".join(response.result)
 
             st.write("### AI-Generated Narrative:")
             st.write(narrative)
