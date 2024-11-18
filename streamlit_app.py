@@ -109,17 +109,15 @@ if st.button("Generate Enterprise Insights"):
                 f"{df.to_string(index=False)}"
             )
             
-            # Call Gemini API for content generation
-            response = genai.generate_content(
-                model="models/text-bison-001", 
-                messages=[{"role": "user", "content": prompt}]
-            )
+            # Load and configure the model
+            model = genai.GenerativeModel('gemini-1.5-flash')
 
-            # Extract the generated narrative
-            narrative = response.content if hasattr(response, 'content') else "No content generated."
+            # Generate response from the model
+            response = model.generate_content(prompt)
 
+            # Extract and display the generated narrative
             st.write("### AI-Generated Narrative:")
-            st.write(narrative)
+            st.write(response.text)
 
             # Export Option
             if st.button("Download Insights as Excel"):
