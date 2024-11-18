@@ -9,30 +9,26 @@ import matplotlib.pyplot as plt
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation as LDA
 from collections import Counter
+from PyPDF2 import PdfReader
 
 # Configure the API key securely from Streamlit's secrets
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # Streamlit App UI
-st.title("Advanced RCA and Escalation Analysis for Email Data")
+st.title("RCA & Escalation Analysis from Email Data")
 st.write("""
-A powerful solution to perform Root Cause Analysis (RCA) and escalation analysis from email data.
-Identify potential causes, track escalation trends, and uncover hidden patterns.
+An advanced solution for analyzing root causes (RCA) and escalation patterns from email content and attachments.
 """)
 
 # File Upload
-uploaded_files = st.file_uploader(
-    "Upload Email Files (supports .eml, .msg, or .txt):", 
-    type=["eml", "msg", "txt"], 
-    accept_multiple_files=True
-)
+uploaded_files = st.file_uploader("Upload Email Files (supports .eml, .msg, .txt, .pdf):", type=["eml", "msg", "txt", "pdf"], accept_multiple_files=True)
 
 # Sentiment Analysis Function
 def analyze_sentiment(text):
     blob = TextBlob(text)
     return "Positive" if blob.sentiment.polarity > 0 else "Negative" if blob.sentiment.polarity < 0 else "Neutral"
 
-# Function to extract email body
+# Extracting Email Body and PDF Attachment
 def extract_email_body(email):
     if email.is_multipart():
         for part in email.walk():
@@ -47,6 +43,13 @@ def extract_email_body(email):
             return email.get_payload(decode=True).decode(errors="ignore")
         except:
             return "No content available."
+
+def extract_pdf_text(pdf_file):
+    pdf_reader = PdfReader(pdf_file)
+    pdf_text = ""
+    for page in pdf_reader.pages:
+        pdf_text += page.extract_text()
+    return pdf_text
 
 # Extracting Date from Email
 def extract_date(email):
@@ -66,22 +69,24 @@ if st.button("Generate RCA Insights"):
 
         # Process each uploaded file
         for file in uploaded_files:
-            content = file.read().decode("utf-8")
-            email = message_from_string(content)
-            subject = email.get("Subject", "No Subject")
-            from_email = email.get("From", "Unknown Sender")
-            sent_time = extract_date(email)
-            body = extract_email_body(email)
+            content = file.read().decode("utf-8") if file.name.endswith(('eml', 'msg', 'txt')) else ""
+            email = message_from_string(content) if content else None
+            subject = email.get("Subject", "No Subject") if email else "No Subject"
+            from_email = email.get("From", "Unknown Sender") if email else "Unknown Sender"
+            sent_time = extract_date(email) if email else datetime.now()
+            body = extract_email_body(email) if email else ""
+            pdf_text = extract_pdf_text(file) if file.name.endswith("pdf") else ""
 
-            # Sentiment Analysis
-            sentiment = analyze_sentiment(body)
+            # Combine email body and PDF text
+            full_body = body + "\n" + pdf_text
+            sentiment = analyze_sentiment(full_body)
 
             # Append data for summary
             all_emails_summary.append({
                 "Subject": subject,
                 "From": from_email,
                 "Sent Time": sent_time,
-                "Body": body,
+                "Body": full_body,
                 "Sentiment": sentiment
             })
             sentiment_data.append(sentiment)
@@ -116,20 +121,25 @@ if st.button("Generate RCA Insights"):
 
         # Topic Modeling with LDA (Latent Dirichlet Allocation)
         st.write("### Topic Modeling (LDA) for Root Cause Insights")
+        # Ensure no empty documents in the corpus
         vectorizer = TfidfVectorizer(stop_words="english", max_features=100)
         X = vectorizer.fit_transform(negative_emails["Body"].dropna())
 
-        lda = LDA(n_components=3, random_state=42)
-        lda.fit(X)
-        
-        topics = []
-        for idx, topic in enumerate(lda.components_):
-            topic_words = [vectorizer.get_feature_names_out()[i] for i in topic.argsort()[-10:]]
-            topics.append(f"Topic {idx + 1}: " + ", ".join(topic_words))
-        
-        st.write("#### Topics Detected in Negative Sentiment Emails:")
-        for topic in topics:
-            st.write(topic)
+        # Ensure no empty vocab
+        if X.shape[0] > 0:
+            lda = LDA(n_components=3, random_state=42)
+            lda.fit(X)
+
+            topics = []
+            for idx, topic in enumerate(lda.components_):
+                topic_words = [vectorizer.get_feature_names_out()[i] for i in topic.argsort()[-10:]]
+                topics.append(f"Topic {idx + 1}: " + ", ".join(topic_words))
+
+            st.write("#### Topics Detected in Negative Sentiment Emails:")
+            for topic in topics:
+                st.write(topic)
+        else:
+            st.write("No valid text for topic modeling.")
 
         # Escalation Pattern Detection
         st.write("### Escalation Patterns Over Time")
