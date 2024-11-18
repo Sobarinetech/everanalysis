@@ -1,61 +1,88 @@
 import streamlit as st
 from email import message_from_string
-from datetime import datetime
+from datetime import datetime, timedelta
 from textblob import TextBlob
 from collections import Counter
 import pandas as pd
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
-from gtts import gTTS
-from PyPDF2 import PdfReader
 import networkx as nx
-import os
+from gtts import gTTS
 import tempfile
 
-# Streamlit Page Setup
-st.title("Advanced RCA & Escalation Analysis")
+# Page Configuration
+st.title("Comprehensive Email Analytics & RCA Tool")
 st.markdown("""
-This tool analyzes emails to extract key metrics, perform RCA, and provide actionable insights using advanced data storytelling.
+This tool provides advanced analytics for email conversations, focusing on key metrics, RCA, and qualitative insights.
 """)
 
 # Upload Files
-uploaded_files = st.file_uploader("Upload Email Files (EML, MSG, TXT, PDF):", type=["eml", "msg", "txt", "pdf"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("Upload Email Files (EML format):", type=["eml"], accept_multiple_files=True)
 
 # Helper Functions
-def extract_email_body(email):
-    """Extracts email body from EML file."""
-    if email.is_multipart():
-        for part in email.walk():
-            if part.get_content_type() == "text/plain":
-                return part.get_payload(decode=True).decode(errors="ignore")
-    else:
-        return email.get_payload(decode=True).decode(errors="ignore")
-
-def extract_pdf_text(pdf_file):
-    """Extracts text from PDF file."""
-    pdf_reader = PdfReader(pdf_file)
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
+def parse_email(email_content):
+    """Parses an email and extracts required information."""
+    email = message_from_string(email_content.decode("utf-8"))
+    sender = email.get("From", "Unknown Sender")
+    receiver = email.get("To", "Unknown Receiver")
+    date = email.get("Date", None)
+    subject = email.get("Subject", "No Subject")
+    body = email.get_payload(decode=True).decode(errors="ignore") if email.is_multipart() else email.get_payload()
+    return sender, receiver, date, subject, body
 
 def analyze_sentiment(text):
     """Performs sentiment analysis using TextBlob."""
     sentiment = TextBlob(text).sentiment.polarity
-    if sentiment > 0:
+    if sentiment > 0.1:
         return "Positive"
-    elif sentiment < 0:
+    elif sentiment < -0.1:
         return "Negative"
     else:
         return "Neutral"
 
-def extract_date(email):
-    """Extracts the date from an email."""
-    date = email.get("Date", "Unknown Date")
-    try:
-        return datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %z")
-    except ValueError:
-        return None
+def formality_analysis(text):
+    """Analyzes formality level using keywords."""
+    informal_words = {"hey", "lol", "thanks", "bye", "ok"}
+    words = set(text.lower().split())
+    if words & informal_words:
+        return "Informal"
+    return "Formal"
+
+def analyze_response_times(email_df):
+    """Analyzes response times between emails."""
+    email_df["Date"] = pd.to_datetime(email_df["Date"], errors="coerce")
+    email_df = email_df.sort_values("Date")
+    email_df["Response Time"] = email_df["Date"].diff().apply(lambda x: x.total_seconds() / 3600 if pd.notnull(x) else None)
+    return email_df
+
+def extract_roles(email_data):
+    """Extracts roles and responsibilities based on sender and receiver patterns."""
+    role_map = Counter([email["Sender"] for email in email_data])
+    responsibilities = {k: f"Frequently communicates ({v} messages)" for k, v in role_map.items()}
+    return responsibilities
+
+def identify_entry_exit(email_data):
+    """Identifies entry and exit points in the conversation."""
+    participants = [email["Sender"] for email in email_data] + [email["Receiver"] for email in email_data]
+    unique_participants = list(set(participants))
+    entry_points = {p: email_data[0]["Date"] for p in unique_participants if p in email_data[0]["Sender"]}
+    exit_points = {p: email_data[-1]["Date"] for p in unique_participants if p in email_data[-1]["Sender"]}
+    return entry_points, exit_points
+
+def analyze_contextual_factors(email_df):
+    """Analyzes contextual factors based on timeline and communication frequency."""
+    timeline = email_df["Date"].dt.date.value_counts().sort_index()
+    st.line_chart(timeline)
+
+def qualitative_metrics(email_data):
+    """Analyzes qualitative metrics like tone shifts and miscommunication."""
+    tone_shifts = []
+    for i in range(1, len(email_data)):
+        prev_sentiment = email_data[i-1]["Sentiment"]
+        current_sentiment = email_data[i]["Sentiment"]
+        if prev_sentiment != current_sentiment:
+            tone_shifts.append(email_data[i])
+    return tone_shifts
 
 def generate_wordcloud(text):
     """Generates a word cloud."""
@@ -65,111 +92,72 @@ def generate_wordcloud(text):
     ax.axis("off")
     return fig
 
-# Analysis Variables
-email_data = []
-sentiments = []
-word_frequencies = Counter()
+def generate_rca_audio(narration):
+    """Generates RCA narration as audio."""
+    tts = gTTS(text=narration, lang="en")
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    tts.save(temp_file.name)
+    return temp_file.name
 
-# Process Uploaded Files
-if st.button("Run Analysis"):
+# Analysis Process
+if st.button("Analyze Emails"):
     if not uploaded_files:
-        st.error("Please upload at least one file.")
+        st.error("Please upload at least one email file.")
     else:
-        # Iterate over uploaded files
+        email_data = []
+        combined_text = ""
         for uploaded_file in uploaded_files:
-            file_name = uploaded_file.name
-            file_content = uploaded_file.read()
-            
-            if file_name.endswith(".eml"):
-                email = message_from_string(file_content.decode("utf-8"))
-                body = extract_email_body(email)
-                subject = email.get("Subject", "No Subject")
-                sender = email.get("From", "Unknown Sender")
-                date = extract_date(email)
-            elif file_name.endswith(".pdf"):
-                body = extract_pdf_text(uploaded_file)
-                subject = "No Subject"
-                sender = "Unknown Sender"
-                date = None
-            else:
-                st.error(f"Unsupported file type: {file_name}")
-                continue
-
+            content = uploaded_file.read()
+            sender, receiver, date, subject, body = parse_email(content)
             sentiment = analyze_sentiment(body)
-            sentiments.append(sentiment)
-            word_frequencies.update(body.split())
-
+            formality = formality_analysis(body)
             email_data.append({
-                "File Name": file_name,
                 "Sender": sender,
+                "Receiver": receiver,
+                "Date": date,
                 "Subject": subject,
                 "Body": body,
-                "Date": date,
-                "Sentiment": sentiment
+                "Sentiment": sentiment,
+                "Formality": formality
             })
+            combined_text += body
 
-        # Convert to DataFrame
         email_df = pd.DataFrame(email_data)
+        email_df = analyze_response_times(email_df)
 
-        # Display Data
-        st.subheader("Email Data")
-        st.dataframe(email_df)
+        st.subheader("Key Metrics")
+        st.metric("Total Emails", len(email_df))
+        st.metric("Unique Participants", len(set(email_df["Sender"])))
+        avg_response_time = email_df["Response Time"].mean()
+        st.metric("Average Response Time (hrs)", round(avg_response_time, 2))
 
-        # Sentiment Analysis
-        st.subheader("Sentiment Analysis")
-        sentiment_counts = pd.Series(sentiments).value_counts()
-        fig, ax = plt.subplots()
-        sentiment_counts.plot(kind="bar", ax=ax, color=["green", "red", "gray"])
-        ax.set_title("Sentiment Distribution")
-        ax.set_xlabel("Sentiment")
-        ax.set_ylabel("Count")
-        st.pyplot(fig)
+        st.subheader("Roles and Responsibilities")
+        roles = extract_roles(email_data)
+        st.json(roles)
 
-        # Word Cloud
+        st.subheader("Entry and Exit Points")
+        entry_points, exit_points = identify_entry_exit(email_data)
+        st.write("Entry Points", entry_points)
+        st.write("Exit Points", exit_points)
+
+        st.subheader("Tone and Sentiment Analysis")
+        tone_shifts = qualitative_metrics(email_data)
+        st.write("Tone Shifts Identified:")
+        st.dataframe(pd.DataFrame(tone_shifts))
+
+        st.subheader("Contextual Factors")
+        analyze_contextual_factors(email_df)
+
         st.subheader("Word Cloud")
-        wordcloud_fig = generate_wordcloud(" ".join(word_frequencies.keys()))
+        wordcloud_fig = generate_wordcloud(combined_text)
         st.pyplot(wordcloud_fig)
 
-        # Escalation Triggers
-        st.subheader("Escalation Triggers")
-        escalation_triggers = email_df[email_df["Sentiment"] == "Negative"]
-        if not escalation_triggers.empty:
-            st.write("Emails with Negative Sentiment:")
-            st.dataframe(escalation_triggers)
-        else:
-            st.write("No escalation triggers found.")
-
-        # Network Diagram
-        st.subheader("Participant Network")
-        participants = email_df["Sender"].value_counts()
-        G = nx.DiGraph()
-        for sender in participants.index:
-            G.add_node(sender)
-        for _, row in email_df.iterrows():
-            G.add_edge(row["Sender"], "Receiver")
-        fig, ax = plt.subplots(figsize=(8, 8))
-        nx.draw(G, with_labels=True, node_color="lightblue", ax=ax, font_size=10)
-        st.pyplot(fig)
-
-        # Culpability Analysis
-        st.subheader("Culpability Analysis")
-        top_senders = participants.head(5)
-        st.write("Top Senders of Negative Emails:")
-        st.bar_chart(top_senders)
-
-        # Generate Narration
-        st.subheader("Generate RCA Narration")
-        if st.button("Create RCA Narration"):
-            narration_text = f"""
-            The analysis revealed {len(email_data)} emails. The sentiment distribution showed 
-            {sentiment_counts['Positive']} positive, {sentiment_counts['Negative']} negative, 
-            and {sentiment_counts['Neutral']} neutral emails. The most frequent sender is 
-            {participants.idxmax()} with {participants.max()} emails.
-            """
-            st.write(narration_text)
-
-            # Text-to-Speech
-            tts = gTTS(text=narration_text, lang="en")
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-            tts.save(temp_file.name)
-            st.audio(temp_file.name, format="audio/mp3")
+        st.subheader("RCA Narration")
+        narration = f"""
+        The analysis revealed {len(email_df)} emails with an average response time of {round(avg_response_time, 2)} hours.
+        Key roles and responsibilities were identified, with notable tone shifts in {len(tone_shifts)} instances.
+        Contextual factors, such as communication gaps, may indicate external influences or organizational challenges.
+        """
+        st.write(narration)
+        rca_audio = generate_rca_audio(narration)
+        st.audio(rca_audio, format="audio/mp3")
