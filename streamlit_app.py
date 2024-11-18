@@ -15,9 +15,9 @@ from PyPDF2 import PdfReader
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # Streamlit App UI
-st.title("RCA & Escalation Analysis from Email Data")
+st.title("RCA & Email Data Storytelling")
 st.write("""
-An advanced solution for analyzing root causes (RCA) and escalation patterns from email content and attachments.
+An advanced solution for analyzing root causes (RCA) and escalation patterns from email content and generating a detailed AI-based data story.
 """)
 
 # File Upload
@@ -60,7 +60,7 @@ def extract_date(email):
         return datetime.now()
 
 # Process Uploaded Files
-if st.button("Generate RCA Insights"):
+if st.button("Generate RCA Insights and Data Story"):
     if not uploaded_files:
         st.error("Please upload at least one email file.")
     else:
@@ -177,12 +177,28 @@ if st.button("Generate RCA Insights"):
             else:
                 st.write("Topic modeling failed due to lack of content.")
 
-        # Generate RCA Narrative using Gemini API
-        if st.button("Generate RCA Narrative"):
-            rca_data = df[['Subject', 'From', 'Sent Time', 'Body']].to_dict(orient='records')
-            prompt = f"Analyze these emails for root cause patterns and escalations:\n{rca_data}"
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(prompt)
-            st.write("### RCA Narrative:")
-            st.write(response.text)
+        # AI-based Data Storytelling
+        st.write("### AI-Generated Data Story")
 
+        # Prepare the RCA data for storytelling
+        rca_data = df[['Subject', 'From', 'Sent Time', 'Body']].to_dict(orient='records')
+
+        # Generate a prompt for the AI model to generate a data story
+        prompt = f"""
+        Based on the following email data, generate a comprehensive AI-based narrative that tells the story of the root causes and escalation patterns:
+        {rca_data}
+
+        The narrative should include:
+        - Key insights from the email subjects, such as common themes or recurring issues.
+        - Identification of potential causes for escalations or negative sentiments.
+        - A detailed breakdown of who is involved in escalations and any response delays.
+        - An actionable conclusion with recommendations for preventing future issues.
+        """
+
+        # Call the Gemini model to generate the data story
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+
+        # Display the AI-generated story
+        st.write("### AI-Generated RCA Narrative:")
+        st.write(response.text)
