@@ -81,6 +81,22 @@ if st.button("Generate RCA Insights"):
             full_body = body + "\n" + pdf_text
             sentiment = analyze_sentiment(full_body)
 
+# Ensure Sent Time column is in datetime format
+df['Sent Time'] = pd.to_datetime(df['Sent Time'], errors='coerce')
+
+# Check if Sent Time column exists and convert to datetime format
+if df['Sent Time'].isnull().any():
+    st.error("There is an issue with the Sent Time column. It contains invalid dates.")
+
+# Create 'Weekday' column from 'Sent Time'
+df['Weekday'] = df['Sent Time'].dt.day_name()
+
+# Process escalations by day of the week
+escalations_by_day = negative_emails.groupby('Weekday').size().sort_values(ascending=False)
+st.write("#### Escalations by Day of the Week:")
+st.bar_chart(escalations_by_day)
+
+            
             # Append data for summary
             all_emails_summary.append({
                 "Subject": subject,
