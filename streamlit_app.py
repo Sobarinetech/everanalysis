@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from collections import Counter
 import seaborn as sns
-import pyttsx3
+from gtts import gTTS
 import os
 
 # Configure the API key securely from Streamlit's secrets
@@ -206,12 +206,10 @@ if st.button("Generate RCA Insights and Sentiment Analysis"):
         st.write("#### Final Conclusion:")
         st.write(final_conclusion)
 
-        # Text to Speech for RCA and Conclusion (using pyttsx3)
-        engine = pyttsx3.init()
-        narration_text = rca_narration + " " + final_conclusion
+        # Text to Speech for RCA and Conclusion (using gTTS)
+        tts = gTTS(text=rca_narration + " " + final_conclusion, lang='en')
         audio_path = "RCA_Conclusion_Narration.mp3"
-        engine.save_to_file(narration_text, audio_path)
-        engine.runAndWait()
+        tts.save(audio_path)
 
         # Provide Audio File for Download
         st.write("### Audio Narration (RCA and Final Conclusion)")
