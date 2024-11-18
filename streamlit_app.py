@@ -121,25 +121,33 @@ if st.button("Generate RCA Insights"):
 
         # Topic Modeling with LDA (Latent Dirichlet Allocation)
         st.write("### Topic Modeling (LDA) for Root Cause Insights")
-        # Ensure no empty documents in the corpus
-        vectorizer = TfidfVectorizer(stop_words="english", max_features=100)
-        X = vectorizer.fit_transform(negative_emails["Body"].dropna())
+        
+        # Filter out empty documents
+        valid_emails = negative_emails['Body'].dropna().str.strip()
+        valid_emails = valid_emails[valid_emails.str.split().str.len() > 1]  # Remove too short documents
 
-        # Ensure no empty vocab
-        if X.shape[0] > 0:
-            lda = LDA(n_components=3, random_state=42)
-            lda.fit(X)
-
-            topics = []
-            for idx, topic in enumerate(lda.components_):
-                topic_words = [vectorizer.get_feature_names_out()[i] for i in topic.argsort()[-10:]]
-                topics.append(f"Topic {idx + 1}: " + ", ".join(topic_words))
-
-            st.write("#### Topics Detected in Negative Sentiment Emails:")
-            for topic in topics:
-                st.write(topic)
+        # Vectorize with TF-IDF
+        if valid_emails.empty:
+            st.write("No valid emails for topic modeling.")
         else:
-            st.write("No valid text for topic modeling.")
+            vectorizer = TfidfVectorizer(stop_words="english", max_features=100)
+            X = vectorizer.fit_transform(valid_emails)
+
+            # Check if the vocabulary is empty
+            if X.shape[0] > 0:
+                lda = LDA(n_components=3, random_state=42)
+                lda.fit(X)
+
+                topics = []
+                for idx, topic in enumerate(lda.components_):
+                    topic_words = [vectorizer.get_feature_names_out()[i] for i in topic.argsort()[-10:]]
+                    topics.append(f"Topic {idx + 1}: " + ", ".join(topic_words))
+
+                st.write("#### Topics Detected in Negative Sentiment Emails:")
+                for topic in topics:
+                    st.write(topic)
+            else:
+                st.write("Topic modeling failed due to lack of content.")
 
         # Escalation Pattern Detection
         st.write("### Escalation Patterns Over Time")
