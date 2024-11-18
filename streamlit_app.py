@@ -5,7 +5,7 @@ from datetime import datetime
 from io import BytesIO
 import pandas as pd
 import matplotlib.pyplot as plt
-from textblob import TextBlob  # For sentiment analysis
+from textblob import TextBlob
 
 # Configure the API key securely from Streamlit's secrets
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
@@ -90,8 +90,14 @@ if st.button("Generate Enterprise Insights"):
             )
             response = genai.generate_text(model="models/text-bison-001", prompt=prompt)
 
+            # Ensure response.result is handled properly
+            if isinstance(response.result, list):
+                narrative = "\n".join(response.result)  # Join list items into a single string
+            else:
+                narrative = response.result  # Directly use as a string
+
             st.write("### AI-Generated Narrative:")
-            st.write(response.result)
+            st.write(narrative)
 
             # Export Option
             if st.button("Download Insights as Excel"):
