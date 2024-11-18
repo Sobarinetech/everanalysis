@@ -81,22 +81,6 @@ if st.button("Generate RCA Insights"):
             full_body = body + "\n" + pdf_text
             sentiment = analyze_sentiment(full_body)
 
-# Ensure Sent Time column is in datetime format
-df['Sent Time'] = pd.to_datetime(df['Sent Time'], errors='coerce')
-
-# Check if Sent Time column exists and convert to datetime format
-if df['Sent Time'].isnull().any():
-    st.error("There is an issue with the Sent Time column. It contains invalid dates.")
-
-# Create 'Weekday' column from 'Sent Time'
-df['Weekday'] = df['Sent Time'].dt.day_name()
-
-# Process escalations by day of the week
-escalations_by_day = negative_emails.groupby('Weekday').size().sort_values(ascending=False)
-st.write("#### Escalations by Day of the Week:")
-st.bar_chart(escalations_by_day)
-
-            
             # Append data for summary
             all_emails_summary.append({
                 "Subject": subject,
@@ -120,14 +104,28 @@ st.bar_chart(escalations_by_day)
         ax.set_ylabel('Count')
         st.pyplot(fig)
 
+        # Ensure Sent Time column is in datetime format
+        df['Sent Time'] = pd.to_datetime(df['Sent Time'], errors='coerce')
+
+        # Check if Sent Time column exists and convert to datetime format
+        if df['Sent Time'].isnull().any():
+            st.error("There is an issue with the Sent Time column. It contains invalid dates.")
+
+        # Create 'Weekday' column from 'Sent Time'
+        df['Weekday'] = df['Sent Time'].dt.day_name()
+
+        # Process escalations by day of the week
+        negative_emails = df[df['Sentiment'] == 'Negative']
+        escalations_by_day = negative_emails.groupby('Weekday').size().sort_values(ascending=False)
+        st.write("#### Escalations by Day of the Week:")
+        st.bar_chart(escalations_by_day)
+
         # RCA Analysis and Identification of Culprits
         st.write("### RCA and Culprit Identification")
-        negative_emails = df[df['Sentiment'] == 'Negative']
-        
         if not negative_emails.empty:
             st.write("#### Negative Sentiment Emails (Potential Escalations):")
             st.dataframe(negative_emails)
-            
+
             # Identify potential culprits (frequent senders in negative sentiment emails)
             culprit_counts = negative_emails['From'].value_counts().head(5)
             st.write("#### Top 5 Culprits (Frequent Senders of Negative Emails):")
@@ -137,7 +135,7 @@ st.bar_chart(escalations_by_day)
 
         # Topic Modeling with LDA (Latent Dirichlet Allocation)
         st.write("### Topic Modeling (LDA) for Root Cause Insights")
-        
+
         # Filter out empty documents
         valid_emails = negative_emails['Body'].dropna().str.strip()
         valid_emails = valid_emails[valid_emails.str.split().str.len() > 1]  # Remove too short documents
@@ -167,10 +165,6 @@ st.bar_chart(escalations_by_day)
 
         # Escalation Pattern Detection
         st.write("### Escalation Patterns Over Time")
-        
-        # Ensure 'Sent Time' is parsed correctly as datetime
-        df['Sent Time'] = pd.to_datetime(df['Sent Time'], errors='coerce')
-        df['Weekday'] = df['Sent Time'].dt.day_name()
         escalations_by_day = negative_emails.groupby('Weekday').size().sort_values(ascending=False)
         st.write("#### Escalations by Day of the Week:")
         st.bar_chart(escalations_by_day)
