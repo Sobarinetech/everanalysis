@@ -5,6 +5,7 @@ from datetime import datetime
 from io import BytesIO
 import pandas as pd
 from textblob import TextBlob
+import matplotlib.pyplot as plt
 
 # Configure the API key securely from Streamlit's secrets
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
@@ -58,7 +59,24 @@ def extract_email_body(email):
                 pass
     return "No content available."
 
-# Button to process and generate insights
+# Additional Features: Functions
+def keyword_analysis(body):
+    """Extract frequently occurring keywords."""
+    words = body.split()
+    keywords = pd.Series(words).value_counts().head(10)
+    return keywords
+
+def email_count_by_sender(df):
+    """Count emails grouped by sender."""
+    return df['From'].value_counts()
+
+def sentiment_distribution(sentiments):
+    """Visualize sentiment distribution."""
+    sentiment_df = pd.DataFrame(sentiments, columns=["Sentiment"])
+    distribution = sentiment_df["Sentiment"].value_counts()
+    return distribution
+
+# Process Uploaded Files
 if st.button("Generate Enterprise Insights"):
     if not uploaded_files:
         st.error("Please upload at least one file.")
@@ -119,18 +137,70 @@ if st.button("Generate Enterprise Insights"):
             st.write("### AI-Generated Narrative:")
             st.write(response.text)
 
-            # Export Option
-            if st.button("Download Insights as Excel"):
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                    df.to_excel(writer, index=False, sheet_name="Email Insights")
-                output.seek(0)
+            # 1. Keyword Analysis
+            st.write("### Frequently Occurring Keywords")
+            all_bodies = " ".join(df["Body"].dropna().tolist())
+            keywords = keyword_analysis(all_bodies)
+            st.bar_chart(keywords)
+
+            # 2. Email Count by Sender
+            st.write("### Email Count by Sender")
+            email_counts = email_count_by_sender(df)
+            st.bar_chart(email_counts)
+
+            # 3. Sentiment Distribution
+            st.write("### Sentiment Distribution")
+            sentiment_distribution_data = sentiment_distribution(sentiment_data)
+            st.bar_chart(sentiment_distribution_data)
+
+            # 4. Weekly Email Trends
+            st.write("### Weekly Email Trends")
+            df["Sent Time"] = pd.to_datetime(df["Sent Time"], errors="coerce")
+            df["Week"] = df["Sent Time"].dt.isocalendar().week
+            weekly_emails = df.groupby("Week").size()
+            st.line_chart(weekly_emails)
+
+            # 5. Top 5 Longest Emails
+            st.write("### Top 5 Longest Emails")
+            df["Body Length"] = df["Body"].apply(lambda x: len(x) if x else 0)
+            top_longest = df.nlargest(5, "Body Length")
+            st.dataframe(top_longest[["Subject", "From", "Body Length"]])
+
+            # 6. Customizable Filters
+            st.write("### Filter Emails by Sender")
+            unique_senders = df["From"].dropna().unique()
+            sender_filter = st.selectbox("Select a Sender to View Emails:", unique_senders)
+            filtered_emails = df[df["From"] == sender_filter]
+            st.dataframe(filtered_emails)
+
+            # 7. Export Filtered Emails to CSV
+            if st.button("Download Filtered Emails"):
+                filtered_output = BytesIO()
+                filtered_emails.to_csv(filtered_output, index=False)
+                filtered_output.seek(0)
                 st.download_button(
-                    label="Download Insights",
-                    data=output,
-                    file_name="email_insights.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    label="Download Filtered Emails as CSV",
+                    data=filtered_output,
+                    file_name="filtered_emails.csv",
+                    mime="text/csv"
                 )
+
+            # 8. Reply Time Analysis
+            st.write("### Average Reply Time")
+            reply_times = df["Sent Time"].dropna().diff().mean()
+            st.write(f"Average Reply Time: {reply_times}")
+
+            # 9. Time-Zone Based Analysis
+            st.write("### Emails by Time Zone")
+            time_zones = df["Sent Time"].dt.tz_localize(None).dt.hour.value_counts()
+            st.bar_chart(time_zones)
+
+            # 10. Visualize Sentiment Over Time
+            st.write("### Sentiment Over Time")
+            df["Sentiment Score"] = df["Body"].apply(lambda x: TextBlob(x).sentiment.polarity if x else 0)
+            df["Date"] = df["Sent Time"].dt.date
+            sentiment_over_time = df.groupby("Date")["Sentiment Score"].mean()
+            st.line_chart(sentiment_over_time)
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
