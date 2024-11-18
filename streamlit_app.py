@@ -76,6 +76,21 @@ def sentiment_distribution(sentiments):
     distribution = sentiment_df["Sentiment"].value_counts()
     return distribution
 
+def rca_analysis(email_df):
+    """Performs Root Cause Analysis using AI."""
+    prompt = (
+        "Analyze the following emails to identify where issues occurred, which teams might be responsible, "
+        "and suggest possible solutions:\n\n"
+        f"{email_df.to_string(index=False)}"
+    )
+    
+    # Load and configure the model
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # Generate response from the model
+    response = model.generate_content(prompt)
+    return response.text
+
 # Process Uploaded Files
 if st.button("Generate Enterprise Insights"):
     if not uploaded_files:
@@ -127,15 +142,12 @@ if st.button("Generate Enterprise Insights"):
                 f"{df.to_string(index=False)}"
             )
             
-            # Load and configure the model
-            model = genai.GenerativeModel('gemini-1.5-flash')
-
             # Generate response from the model
-            response = model.generate_content(prompt)
+            response = rca_analysis(df)
 
             # Extract and display the generated narrative
             st.write("### AI-Generated Narrative:")
-            st.write(response.text)
+            st.write(response)
 
             # 1. Keyword Analysis
             st.write("### Frequently Occurring Keywords")
