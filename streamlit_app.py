@@ -34,6 +34,30 @@ def analyze_sentiment(text):
     else:
         return "Neutral"
 
+# Function to extract email body safely
+def extract_email_body(email):
+    """Extracts the email body, handling multipart emails and None content."""
+    if email.is_multipart():
+        for part in email.walk():
+            content_type = part.get_content_type()
+            content_disposition = str(part.get("Content-Disposition"))
+
+            # Only process text/plain parts
+            if content_type == "text/plain" and "attachment" not in content_disposition:
+                try:
+                    return part.get_payload(decode=True).decode(errors="ignore")
+                except:
+                    continue
+    else:
+        # Handle non-multipart emails
+        payload = email.get_payload()
+        if payload:
+            try:
+                return payload.decode(errors="ignore") if isinstance(payload, bytes) else payload
+            except:
+                pass
+    return "No content available."
+
 # Button to process and generate insights
 if st.button("Generate Enterprise Insights"):
     if not uploaded_files:
@@ -54,7 +78,7 @@ if st.button("Generate Enterprise Insights"):
                 to_email = email.get("To", "Unknown Recipient")
                 sent_time = email.get("Date", "Unknown Date")
                 reply_to = email.get("Reply-To", "No Reply-To Address")
-                body = email.get_payload(decode=True).decode(errors="ignore") if email.is_multipart() else email.get_payload()
+                body = extract_email_body(email)
 
                 # Sentiment Analysis
                 sentiment = analyze_sentiment(body)
@@ -66,6 +90,7 @@ if st.button("Generate Enterprise Insights"):
                     "To": to_email,
                     "Sent Time": sent_time,
                     "Reply-To": reply_to,
+                    "Body": body,
                     "Sentiment": sentiment
                 })
                 sentiment_data.append(sentiment)
@@ -83,10 +108,15 @@ if st.button("Generate Enterprise Insights"):
                 "sent details, sentiments, and create an engaging enterprise-level narrative:\n\n"
                 f"{df.to_string(index=False)}"
             )
-            response = genai.generate_text(model="models/text-bison-001", prompt=prompt)
+            
+            # Call Gemini API for content generation
+            response = genai.generate_content(
+                model="models/text-bison-001", 
+                messages=[{"role": "user", "content": prompt}]
+            )
 
-            # Ensure response.result is converted to a string
-            narrative = response.result if isinstance(response.result, str) else "\n".join(response.result)
+            # Extract the generated narrative
+            narrative = response.content if hasattr(response, 'content') else "No content generated."
 
             st.write("### AI-Generated Narrative:")
             st.write(narrative)
