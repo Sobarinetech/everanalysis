@@ -1,9 +1,4 @@
 streamlit
 google-generativeai
-pandas
-matplotlib
+nltk
 textblob
-xlsxwriter
-seaborn 
-scikit-learn
-PyPDF2
