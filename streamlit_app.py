@@ -111,33 +111,47 @@ if st.button("Generate RCA Insights"):
         if df['Sent Time'].isnull().any():
             st.error("There is an issue with the Sent Time column. It contains invalid dates.")
 
-        # Create 'Weekday' column from 'Sent Time'
-        df['Weekday'] = df['Sent Time'].dt.day_name()
+        # Process RCA & Escalation Analysis
 
-        # Process escalations by day of the week
-        negative_emails = df[df['Sentiment'] == 'Negative']
-        escalations_by_day = negative_emails.groupby('Weekday').size().sort_values(ascending=False)
-        st.write("#### Escalations by Day of the Week:")
-        st.bar_chart(escalations_by_day)
+        # Root Cause Analysis (RCA) Insights
+        st.write("### RCA Insights")
+        if not df.empty:
+            # Check for frequent patterns in Subject
+            subject_keywords = df['Subject'].str.extract(r'(\b[A-Za-z]{4,}\b)', expand=False)
+            keyword_counts = subject_keywords.value_counts().head(10)
+            st.write("#### Top 10 Keywords in Email Subjects (Potential Root Cause Indicators):")
+            st.bar_chart(keyword_counts)
 
-        # RCA Analysis and Identification of Culprits
-        st.write("### RCA and Culprit Identification")
-        if not negative_emails.empty:
+            # Analyze escalation patterns based on negative sentiment
+            negative_emails = df[df['Sentiment'] == 'Negative']
+
             st.write("#### Negative Sentiment Emails (Potential Escalations):")
             st.dataframe(negative_emails)
 
-            # Identify potential culprits (frequent senders in negative sentiment emails)
+            # Identify top 5 most frequent culprits (senders of negative emails)
             culprit_counts = negative_emails['From'].value_counts().head(5)
             st.write("#### Top 5 Culprits (Frequent Senders of Negative Emails):")
             st.bar_chart(culprit_counts)
-        else:
-            st.write("No negative sentiment emails found.")
 
-        # Topic Modeling with LDA (Latent Dirichlet Allocation)
+            # Response Time Analysis for Escalation
+            negative_emails['Response Time'] = negative_emails['Sent Time'].diff().fillna(pd.Timedelta(seconds=0))
+            average_response_time = negative_emails['Response Time'].mean()
+            st.write(f"#### Average Response Time for Negative Sentiment Emails: {average_response_time}")
+
+            # Email Thread Analysis (Root Cause in Email Chains)
+            st.write("### Email Thread Analysis (Escalation in Ongoing Conversations)")
+            thread_emails = df[df['Subject'].str.contains('Re:', na=False)]
+            st.write("#### Emails in Threads (Potential Escalations in Ongoing Conversations):")
+            st.dataframe(thread_emails)
+
+        else:
+            st.write("No data available for RCA insights.")
+
+        # Topic Modeling with LDA (Latent Dirichlet Allocation) for identifying root causes
         st.write("### Topic Modeling (LDA) for Root Cause Insights")
 
         # Filter out empty documents
-        valid_emails = negative_emails['Body'].dropna().str.strip()
+        valid_emails = df['Body'].dropna().str.strip()
         valid_emails = valid_emails[valid_emails.str.split().str.len() > 1]  # Remove too short documents
 
         # Vectorize with TF-IDF
@@ -163,42 +177,12 @@ if st.button("Generate RCA Insights"):
             else:
                 st.write("Topic modeling failed due to lack of content.")
 
-        # Escalation Pattern Detection
-        st.write("### Escalation Patterns Over Time")
-        escalations_by_day = negative_emails.groupby('Weekday').size().sort_values(ascending=False)
-        st.write("#### Escalations by Day of the Week:")
-        st.bar_chart(escalations_by_day)
-
-        # Frequency of Escalation Emails
-        st.write("### Frequency of Escalation Emails")
-        escalation_frequency = negative_emails.groupby(negative_emails['Sent Time'].dt.date).size()
-        st.line_chart(escalation_frequency)
-
-        # Email Thread Analysis (Root Cause in Email Chains)
-        st.write("### Email Thread Analysis")
-        # Assuming emails are part of a thread if the subject line has 'Re:'
-        thread_emails = df[df['Subject'].str.contains('Re:', na=False)]
-        st.write("#### Emails in Threads (Possible Escalations in Ongoing Conversations):")
-        st.dataframe(thread_emails)
-
-        # Escalation Specific Metrics: Email Response Time
-        st.write("### Email Response Time Analysis")
-        df['Response Time'] = df['Sent Time'].diff().fillna(pd.Timedelta(seconds=0))
-        average_response_time = df['Response Time'].mean()
-        st.write(f"#### Average Email Response Time: {average_response_time}")
-
-        # Root Cause Insights (Based on Sentiment & Subject)
-        st.write("### Root Cause Insights Based on Sentiment & Subject")
-        subject_keywords = negative_emails['Subject'].str.extract(r'(\b[A-Za-z]{4,}\b)', expand=False)
-        keyword_counts = subject_keywords.value_counts().head(10)
-        st.write("#### Top 10 Keywords in Email Subjects (Root Cause Indicators):")
-        st.bar_chart(keyword_counts)
-
         # Generate RCA Narrative using Gemini API
         if st.button("Generate RCA Narrative"):
-            rca_data = negative_emails[['Subject', 'From', 'Sent Time', 'Body']].to_dict(orient='records')
+            rca_data = df[['Subject', 'From', 'Sent Time', 'Body']].to_dict(orient='records')
             prompt = f"Analyze these emails for root cause patterns and escalations:\n{rca_data}"
             model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(prompt)
             st.write("### RCA Narrative:")
             st.write(response.text)
+
