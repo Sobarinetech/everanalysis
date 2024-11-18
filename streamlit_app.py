@@ -8,12 +8,14 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from collections import Counter
 import seaborn as sns
+import pyttsx3
+import os
 
 # Configure the API key securely from Streamlit's secrets
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # Streamlit App UI
-st.title("Email Escalation and Sentiment Analysis")
+st.title("Email Escalation and Sentiment Analysis with RCA and Conclusions")
 st.write("""
 This tool performs detailed analysis on email exchanges, identifying escalation triggers, sentiment shifts, response times, and key topics to help root cause escalation issues.
 """)
@@ -184,3 +186,35 @@ if st.button("Generate RCA Insights and Sentiment Analysis"):
             st.dataframe(unrealistic_expectations)
         else:
             st.write("No instances of unrealistic expectations or miscommunications identified.")
+
+        # Generate RCA and Final Conclusion Narration
+        rca_narration = """
+        Based on the analysis of the email interactions, the root cause of escalations seems to be a combination of sentiment shifts, delayed responses, and unrealistic expectations from certain participants. 
+        Negative sentiments were observed in several emails, indicating dissatisfaction or urgency that was not adequately addressed. 
+        Furthermore, response times were irregular, with certain delays contributing to frustration among participants. 
+        The involvement of key participants has been flagged for further attention, particularly those responsible for escalating issues.
+        """
+
+        final_conclusion = """
+        The final conclusion suggests that clear communication, timely responses, and setting realistic expectations would significantly reduce the frequency of escalations in future interactions. 
+        Further training on communication practices and proactive response management could be beneficial for all participants.
+        """
+
+        st.write("### RCA Narration and Final Conclusion")
+        st.write("#### Root Cause Analysis (RCA):")
+        st.write(rca_narration)
+        st.write("#### Final Conclusion:")
+        st.write(final_conclusion)
+
+        # Text to Speech for RCA and Conclusion (using pyttsx3)
+        engine = pyttsx3.init()
+        narration_text = rca_narration + " " + final_conclusion
+        audio_path = "RCA_Conclusion_Narration.mp3"
+        engine.save_to_file(narration_text, audio_path)
+        engine.runAndWait()
+
+        # Provide Audio File for Download
+        st.write("### Audio Narration (RCA and Final Conclusion)")
+        st.audio(audio_path, format="audio/mp3")
+        os.remove(audio_path)  # Clean up the temporary file after playback
+
