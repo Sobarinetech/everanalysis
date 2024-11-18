@@ -6,6 +6,8 @@ from io import BytesIO
 import pandas as pd
 from textblob import TextBlob
 import matplotlib.pyplot as plt
+import re
+import seaborn as sns
 
 # Configure the API key securely from Streamlit's secrets
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
@@ -76,20 +78,43 @@ def sentiment_distribution(sentiments):
     distribution = sentiment_df["Sentiment"].value_counts()
     return distribution
 
-def rca_analysis(email_df):
-    """Performs Root Cause Analysis using AI."""
-    prompt = (
-        "Analyze the following emails to identify where issues occurred, which teams might be responsible, "
-        "and suggest possible solutions:\n\n"
-        f"{email_df.to_string(index=False)}"
-    )
-    
-    # Load and configure the model
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    
-    # Generate response from the model
-    response = model.generate_content(prompt)
-    return response.text
+def extract_domains(df):
+    """Extract domains from email addresses."""
+    df['Domain'] = df['From'].apply(lambda x: re.findall(r'@([A-Za-z0-9.-]+)', x)[0] if '@' in x else 'No Domain')
+    return df
+
+def email_length_distribution(df):
+    """Visualize the distribution of email body lengths."""
+    df["Body Length"] = df["Body"].apply(lambda x: len(x) if x else 0)
+    return df["Body Length"]
+
+def time_of_day_analysis(df):
+    """Analyze the time of day when emails are sent."""
+    df['Hour'] = pd.to_datetime(df['Sent Time']).dt.hour
+    time_of_day = df.groupby('Hour').size()
+    return time_of_day
+
+def most_common_words(body):
+    """Extract most common words in an email body."""
+    words = body.split()
+    return pd.Series(words).value_counts().head(10)
+
+def subject_length_distribution(df):
+    """Visualize the distribution of subject line lengths."""
+    df["Subject Length"] = df["Subject"].apply(lambda x: len(x) if x else 0)
+    return df["Subject Length"]
+
+def word_cloud(body):
+    """Generate a word cloud for email body text."""
+    from wordcloud import WordCloud
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(" ".join(body))
+    return wordcloud
+
+def email_activity_trend(df):
+    """Analyze email activity over time (by day)."""
+    df['Date'] = pd.to_datetime(df['Sent Time']).dt.date
+    activity_trend = df.groupby('Date').size()
+    return activity_trend
 
 # Process Uploaded Files
 if st.button("Generate Enterprise Insights"):
@@ -142,12 +167,15 @@ if st.button("Generate Enterprise Insights"):
                 f"{df.to_string(index=False)}"
             )
             
+            # Load and configure the model
+            model = genai.GenerativeModel('gemini-1.5-flash')
+
             # Generate response from the model
-            response = rca_analysis(df)
+            response = model.generate_content(prompt)
 
             # Extract and display the generated narrative
             st.write("### AI-Generated Narrative:")
-            st.write(response)
+            st.write(response.text)
 
             # 1. Keyword Analysis
             st.write("### Frequently Occurring Keywords")
@@ -214,5 +242,31 @@ if st.button("Generate Enterprise Insights"):
             sentiment_over_time = df.groupby("Date")["Sentiment Score"].mean()
             st.line_chart(sentiment_over_time)
 
+            # 11. Domain Extraction Analysis
+            st.write("### Email Domains Breakdown")
+            df = extract_domains(df)
+            domain_counts = df["Domain"].value_counts()
+            st.bar_chart(domain_counts)
+
+            # 12. Email Length Distribution
+            st.write("### Email Body Length Distribution")
+            body_length_distribution = email_length_distribution(df)
+            st.histogram(body_length_distribution, bins=20)
+
+            # 13. Subject Length Distribution
+            st.write("### Subject Line Length Distribution")
+            subject_lengths = subject_length_distribution(df)
+            st.histogram(subject_lengths, bins=20)
+
+            # 14. Email Activity Over Time
+            st.write("### Email Activity Over Time")
+            activity_trend = email_activity_trend(df)
+            st.line_chart(activity_trend)
+
+            # 15. Word Cloud for Email Body
+            st.write("### Word Cloud for Email Body")
+            word_cloud_img = word_cloud(df["Body"].dropna().tolist())
+            st.image(word_cloud_img.to_array(), caption="Word Cloud", use_column_width=True)
+
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            st.error(f"Error processing the emails: {str(e)}")
