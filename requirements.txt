@@ -2,3 +2,8 @@ streamlit
 google-generativeai
 nltk
 textblob
+pandas
+textblob
+matplotlib
+networkx
+seaborn
