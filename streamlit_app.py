@@ -1,218 +1,175 @@
 import streamlit as st
-import google.generativeai as genai
 from email import message_from_string
 from datetime import datetime
-import pandas as pd
 from textblob import TextBlob
-import matplotlib.pyplot as plt
-import networkx as nx
 from collections import Counter
-import seaborn as sns
+import pandas as pd
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
 from gtts import gTTS
+from PyPDF2 import PdfReader
+import networkx as nx
 import os
+import tempfile
 
-# Configure the API key securely from Streamlit's secrets
-genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-
-# Streamlit App UI
-st.title("Email Escalation and Sentiment Analysis with RCA and Conclusions")
-st.write("""
-This tool performs detailed analysis on email exchanges, identifying escalation triggers, sentiment shifts, response times, and key topics to help root cause escalation issues.
+# Streamlit Page Setup
+st.title("Advanced RCA & Escalation Analysis")
+st.markdown("""
+This tool analyzes emails to extract key metrics, perform RCA, and provide actionable insights using advanced data storytelling.
 """)
 
-# File Upload
-uploaded_files = st.file_uploader("Upload Email Files (supports .eml, .msg, .txt):", type=["eml", "msg", "txt"], accept_multiple_files=True)
+# Upload Files
+uploaded_files = st.file_uploader("Upload Email Files (EML, MSG, TXT, PDF):", type=["eml", "msg", "txt", "pdf"], accept_multiple_files=True)
 
-# Sentiment Analysis Function
-def analyze_sentiment(text):
-    blob = TextBlob(text)
-    return "Positive" if blob.sentiment.polarity > 0 else "Negative" if blob.sentiment.polarity < 0 else "Neutral"
-
-# Extract Email Body and Sent Date
-def extract_email_content_and_date(email):
+# Helper Functions
+def extract_email_body(email):
+    """Extracts email body from EML file."""
     if email.is_multipart():
         for part in email.walk():
-            content_type = part.get_content_type()
-            if content_type == "text/plain":
-                try:
-                    body = part.get_payload(decode=True).decode(errors="ignore")
-                    return body
-                except:
-                    continue
+            if part.get_content_type() == "text/plain":
+                return part.get_payload(decode=True).decode(errors="ignore")
     else:
-        try:
-            return email.get_payload(decode=True).decode(errors="ignore")
-        except:
-            return "No content available."
-    
-    return "No content available."
+        return email.get_payload(decode=True).decode(errors="ignore")
+
+def extract_pdf_text(pdf_file):
+    """Extracts text from PDF file."""
+    pdf_reader = PdfReader(pdf_file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
+
+def analyze_sentiment(text):
+    """Performs sentiment analysis using TextBlob."""
+    sentiment = TextBlob(text).sentiment.polarity
+    if sentiment > 0:
+        return "Positive"
+    elif sentiment < 0:
+        return "Negative"
+    else:
+        return "Neutral"
 
 def extract_date(email):
+    """Extracts the date from an email."""
     date = email.get("Date", "Unknown Date")
     try:
         return datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %z")
-    except:
-        return datetime.now()
+    except ValueError:
+        return None
 
-def extract_sender_and_receiver(email):
-    sender = email.get("From", "Unknown Sender")
-    receiver = email.get("To", "Unknown Receiver")
-    return sender, receiver
+def generate_wordcloud(text):
+    """Generates a word cloud."""
+    wordcloud = WordCloud(width=800, height=400, background_color="white").generate(text)
+    fig, ax = plt.subplots()
+    ax.imshow(wordcloud, interpolation="bilinear")
+    ax.axis("off")
+    return fig
+
+# Analysis Variables
+email_data = []
+sentiments = []
+word_frequencies = Counter()
 
 # Process Uploaded Files
-if st.button("Generate RCA Insights and Sentiment Analysis"):
+if st.button("Run Analysis"):
     if not uploaded_files:
-        st.error("Please upload at least one email file.")
+        st.error("Please upload at least one file.")
     else:
-        all_emails_summary = []
-        sentiment_data = []
-        response_times = []
-        email_participants = []
-        topics_counter = Counter()
-        timelines = []
-        senders = []
-        receivers = []
-
-        # Process each uploaded file
-        for file in uploaded_files:
-            content = file.read().decode("utf-8") if file.name.endswith(('eml', 'msg', 'txt')) else ""
-            email = message_from_string(content) if content else None
-            subject = email.get("Subject", "No Subject") if email else "No Subject"
-            from_email, to_email = extract_sender_and_receiver(email) if email else ("Unknown Sender", "Unknown Receiver")
-            sent_time = extract_date(email) if email else datetime.now()
-            body = extract_email_content_and_date(email) if email else ""
+        # Iterate over uploaded files
+        for uploaded_file in uploaded_files:
+            file_name = uploaded_file.name
+            file_content = uploaded_file.read()
             
-            sentiment = analyze_sentiment(body)
-
-            # Time elapsed between responses
-            if len(all_emails_summary) > 0:
-                time_diff = (sent_time - all_emails_summary[-1]['Sent Time']).total_seconds()
+            if file_name.endswith(".eml"):
+                email = message_from_string(file_content.decode("utf-8"))
+                body = extract_email_body(email)
+                subject = email.get("Subject", "No Subject")
+                sender = email.get("From", "Unknown Sender")
+                date = extract_date(email)
+            elif file_name.endswith(".pdf"):
+                body = extract_pdf_text(uploaded_file)
+                subject = "No Subject"
+                sender = "Unknown Sender"
+                date = None
             else:
-                time_diff = 0
+                st.error(f"Unsupported file type: {file_name}")
+                continue
 
-            # Extract topics for further analysis
-            topics = body.split()
-            topics_counter.update(topics)
+            sentiment = analyze_sentiment(body)
+            sentiments.append(sentiment)
+            word_frequencies.update(body.split())
 
-            # Append data for summary
-            all_emails_summary.append({
+            email_data.append({
+                "File Name": file_name,
+                "Sender": sender,
                 "Subject": subject,
-                "From": from_email,
-                "To": to_email,
-                "Sent Time": sent_time,
                 "Body": body,
-                "Sentiment": sentiment,
-                "Time Diff (seconds)": time_diff,
+                "Date": date,
+                "Sentiment": sentiment
             })
-            sentiment_data.append(sentiment)
-            response_times.append(time_diff)
-            email_participants.append((from_email, to_email))
-            senders.append(from_email)
-            receivers.append(to_email)
-            timelines.append(sent_time)
 
-        # Convert to DataFrame for analysis
-        df = pd.DataFrame(all_emails_summary)
+        # Convert to DataFrame
+        email_df = pd.DataFrame(email_data)
 
-        # Sentiment Analysis Visualization
-        st.write("### Sentiment Analysis")
-        sentiment_counts = pd.Series(sentiment_data).value_counts()
+        # Display Data
+        st.subheader("Email Data")
+        st.dataframe(email_df)
+
+        # Sentiment Analysis
+        st.subheader("Sentiment Analysis")
+        sentiment_counts = pd.Series(sentiments).value_counts()
         fig, ax = plt.subplots()
-        sentiment_counts.plot(kind='bar', ax=ax, color=['green', 'yellow', 'red'])
-        ax.set_title('Sentiment Distribution')
-        ax.set_xlabel('Sentiment')
-        ax.set_ylabel('Count')
+        sentiment_counts.plot(kind="bar", ax=ax, color=["green", "red", "gray"])
+        ax.set_title("Sentiment Distribution")
+        ax.set_xlabel("Sentiment")
+        ax.set_ylabel("Count")
         st.pyplot(fig)
 
-        # Response Time Analysis
-        st.write("### Response Time Analysis")
-        avg_response_time = pd.Series(response_times).mean()
-        longest_response_time = pd.Series(response_times).max()
-        shortest_response_time = pd.Series(response_times).min()
-        st.write(f"Average Response Time: {avg_response_time:.2f} seconds")
-        st.write(f"Longest Response Time: {longest_response_time:.2f} seconds")
-        st.write(f"Shortest Response Time: {shortest_response_time:.2f} seconds")
+        # Word Cloud
+        st.subheader("Word Cloud")
+        wordcloud_fig = generate_wordcloud(" ".join(word_frequencies.keys()))
+        st.pyplot(wordcloud_fig)
 
-        # Escalation Triggers: Analyze for key phrases and changes in tone
-        st.write("### Escalation Triggers")
-        negative_emails = df[df['Sentiment'] == 'Negative']
-        if not negative_emails.empty:
-            st.write("#### Negative Sentiment Emails (Potential Escalations):")
-            st.dataframe(negative_emails)
-        
-        # Plot timeline of email exchanges
-        st.write("### Timeline of Email Exchanges")
-        fig, ax = plt.subplots()
-        ax.plot(timelines, range(len(timelines)), marker='o')
-        ax.set_title('Email Exchange Timeline')
-        ax.set_xlabel('Time')
-        ax.set_ylabel('Email Index')
+        # Escalation Triggers
+        st.subheader("Escalation Triggers")
+        escalation_triggers = email_df[email_df["Sentiment"] == "Negative"]
+        if not escalation_triggers.empty:
+            st.write("Emails with Negative Sentiment:")
+            st.dataframe(escalation_triggers)
+        else:
+            st.write("No escalation triggers found.")
+
+        # Network Diagram
+        st.subheader("Participant Network")
+        participants = email_df["Sender"].value_counts()
+        G = nx.DiGraph()
+        for sender in participants.index:
+            G.add_node(sender)
+        for _, row in email_df.iterrows():
+            G.add_edge(row["Sender"], "Receiver")
+        fig, ax = plt.subplots(figsize=(8, 8))
+        nx.draw(G, with_labels=True, node_color="lightblue", ax=ax, font_size=10)
         st.pyplot(fig)
 
-        # Network Diagram: Participants in email exchange
-        st.write("### Network Diagram of Participants")
-        G = nx.Graph()
-        for sender, receiver in email_participants:
-            G.add_edge(sender, receiver)
-        plt.figure(figsize=(8, 6))
-        nx.draw(G, with_labels=True, node_size=3000, node_color='lightblue', font_size=10, font_weight='bold')
-        st.pyplot()
-
-        # Heatmap for Topic Frequency Analysis
-        st.write("### Heatmap for Topic Frequency Analysis")
-        top_topics = topics_counter.most_common(20)
-        topics_df = pd.DataFrame(top_topics, columns=["Topic", "Frequency"])
-        fig, ax = plt.subplots()
-        sns.heatmap(topics_df.set_index("Topic").T, annot=True, cmap="YlGnBu", fmt="d", ax=ax)
-        st.pyplot()
-
-        # Culpability Analysis (Sender Contribution to Escalations)
-        st.write("### Culpability Analysis")
-        top_senders = negative_emails['From'].value_counts().head(5)
-        st.write("#### Top 5 Senders (Frequent Sources of Negative Emails):")
+        # Culpability Analysis
+        st.subheader("Culpability Analysis")
+        top_senders = participants.head(5)
+        st.write("Top Senders of Negative Emails:")
         st.bar_chart(top_senders)
 
-        # Additional Metrics
-        st.write("### Additional Metrics")
-        total_emails = len(df)
-        total_participants = len(set(senders + receivers))
-        st.write(f"Total Emails Processed: {total_emails}")
-        st.write(f"Total Participants: {total_participants}")
+        # Generate Narration
+        st.subheader("Generate RCA Narration")
+        if st.button("Create RCA Narration"):
+            narration_text = f"""
+            The analysis revealed {len(email_data)} emails. The sentiment distribution showed 
+            {sentiment_counts['Positive']} positive, {sentiment_counts['Negative']} negative, 
+            and {sentiment_counts['Neutral']} neutral emails. The most frequent sender is 
+            {participants.idxmax()} with {participants.max()} emails.
+            """
+            st.write(narration_text)
 
-        # Identifying unrealistic expectations or miscommunications
-        unrealistic_expectations = df[df['Body'].str.contains("unrealistic expectation", case=False, na=False)]
-        st.write("### Unrealistic Expectations or Miscommunications")
-        if not unrealistic_expectations.empty:
-            st.dataframe(unrealistic_expectations)
-        else:
-            st.write("No instances of unrealistic expectations or miscommunications identified.")
-
-        # Generate RCA and Final Conclusion Narration
-        rca_narration = """
-        Based on the analysis of the email interactions, the root cause of escalations seems to be a combination of sentiment shifts, delayed responses, and unrealistic expectations from certain participants. 
-        Negative sentiments were observed in several emails, indicating dissatisfaction or urgency that was not adequately addressed. 
-        Furthermore, response times were irregular, with certain delays contributing to frustration among participants. 
-        The involvement of key participants has been flagged for further attention, particularly those responsible for escalating issues.
-        """
-
-        final_conclusion = """
-        The final conclusion suggests that clear communication, timely responses, and setting realistic expectations would significantly reduce the frequency of escalations in future interactions. 
-        Further training on communication practices and proactive response management could be beneficial for all participants.
-        """
-
-        st.write("### RCA Narration and Final Conclusion")
-        st.write("#### Root Cause Analysis (RCA):")
-        st.write(rca_narration)
-        st.write("#### Final Conclusion:")
-        st.write(final_conclusion)
-
-        # Text to Speech for RCA and Conclusion (using gTTS)
-        tts = gTTS(text=rca_narration + " " + final_conclusion, lang='en')
-        audio_path = "RCA_Conclusion_Narration.mp3"
-        tts.save(audio_path)
-
-        # Provide Audio File for Download
-        st.write("### Audio Narration (RCA and Final Conclusion)")
-        st.audio(audio_path, format="audio/mp3")
-        os.remove(audio_path)  # Clean up the temporary file after playback
-
+            # Text-to-Speech
+            tts = gTTS(text=narration_text, lang="en")
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+            tts.save(temp_file.name)
+            st.audio(temp_file.name, format="audio/mp3")
