@@ -6,3 +6,4 @@ textblob
 xlsxwriter
 seaborn 
 scikit-learn
+PyPDF2
