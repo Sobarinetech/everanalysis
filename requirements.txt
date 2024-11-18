@@ -5,4 +5,4 @@ matplotlib
 textblob
 xlsxwriter
 seaborn 
-sklearn
+scikit-learn
