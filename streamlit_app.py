@@ -5,15 +5,12 @@ from email import policy
 from email.parser import BytesParser
 from io import BytesIO
 from datetime import datetime
-from nltk.sentiment import SentimentIntensityAnalyzer
+from textblob import TextBlob  # Import TextBlob for sentiment analysis
 import matplotlib.pyplot as plt
 import networkx as nx
 from gtts import gTTS
 import tempfile
 import os
-
-# Load Sentiment Intensity Analyzer
-sia = SentimentIntensityAnalyzer()
 
 # Helper: Parse emails
 def parse_email(email_bytes):
@@ -29,12 +26,14 @@ def parse_email(email_bytes):
         st.error(f"Error parsing email: {e}")
         return None, None, None, None, ""
 
-# Helper: Analyze sentiment
+# Helper: Analyze sentiment using TextBlob
 def analyze_sentiment(text):
-    sentiment = sia.polarity_scores(text)
-    if sentiment['compound'] > 0.05:
+    # Create a TextBlob object and get the sentiment polarity
+    blob = TextBlob(text)
+    polarity = blob.sentiment.polarity
+    if polarity > 0.05:
         return "Positive"
-    elif sentiment['compound'] < -0.05:
+    elif polarity < -0.05:
         return "Negative"
     else:
         return "Neutral"
