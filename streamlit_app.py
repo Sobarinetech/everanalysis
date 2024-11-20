@@ -4,16 +4,32 @@ import spacy
 import re
 import matplotlib.pyplot as plt
 import networkx as nx
-from gtts import gTTS
-import tempfile
-import os
 from email import policy
 from email.parser import BytesParser
 from io import BytesIO
 from datetime import datetime
+import google.generativeai as genai
+
+# Configure the API key securely from Streamlit's secrets
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # Load spaCy model
 nlp = spacy.load("en_core_web_sm")
+
+# Function to call Gemini API for content generation or analysis
+def call_gemini_api(text):
+    try:
+        # Load and configure the model
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Generate response from the model using the provided text
+        response = model.generate_content(text)
+        
+        # Return the generated response text
+        return response.text
+    except Exception as e:
+        st.error(f"Error calling Gemini API: {e}")
+        return None
 
 # Streamlit App Setup
 st.title("Enhanced Email RCA Tool")
@@ -83,18 +99,12 @@ def perform_rca(df):
         f"Escalation Triggers: {escalation_emails[['Sender', 'Receiver', 'Subject']].to_string(index=False)}"
     )
     
+    # Optionally use Gemini to analyze or summarize RCA
+    gemini_analysis = call_gemini_api(rca_summary)
+    if gemini_analysis:
+        rca_summary += "\nGemini Analysis:\n" + gemini_analysis
+    
     return rca_summary
-
-# Helper: Generate Text-to-Speech (TTS)
-def generate_tts(text):
-    try:
-        tts = gTTS(text)
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        tts.save(temp_file.name)
-        return temp_file.name
-    except Exception as e:
-        st.error(f"Error generating TTS: {e}")
-        return None
 
 # Streamlit file uploader
 uploaded_files = st.file_uploader("Upload Emails", type=["eml"], accept_multiple_files=True)
@@ -156,10 +166,3 @@ if uploaded_files:
     st.subheader("Root Cause Analysis (RCA)")
     rca_summary = perform_rca(df)
     st.text(rca_summary)
-
-    # Generate and Play TTS for RCA
-    audio_file = generate_tts(rca_summary)
-    if audio_file:
-        st.subheader("RCA Narration")
-        st.audio(audio_file, format="audio/mp3")
-        os.unlink(audio_file)  # Clean up the temporary file
