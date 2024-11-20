@@ -8,5 +8,4 @@ networkx
 seaborn
 gtts 
 wordcloud
-spacy
-en-core-web-sm
+transformers 
