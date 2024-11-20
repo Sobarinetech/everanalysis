@@ -1,6 +1,5 @@
 streamlit
 google-generativeai
-nltk
 textblob
 pandas
 textblob
@@ -9,3 +8,4 @@ networkx
 seaborn
 gtts 
 wordcloud
+spacy
