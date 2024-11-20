@@ -8,35 +8,36 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from collections import Counter
 import seaborn as sns
-from gtts import gTTS
 import os
+from gtts import gTTS
 
 # Configure the API key securely from Streamlit's secrets
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # Streamlit App UI
-st.title("Email Escalation and Sentiment Analysis with RCA and Conclusions")
+st.title("Email Escalation and RCA Tool")
 st.write("""
-This tool performs detailed analysis on email exchanges, identifying escalation triggers, sentiment shifts, response times, and key topics to help root cause escalation issues.
+This tool analyzes email exchanges for root causes of escalations, identifying patterns, key participants, response delays, sentiment shifts, and communication gaps.
 """)
 
 # File Upload
-uploaded_files = st.file_uploader("Upload Email Files (supports .eml, .msg, .txt):", type=["eml", "msg", "txt"], accept_multiple_files=True)
+uploaded_files = st.file_uploader(
+    "Upload Email Files (supports .eml, .msg, .txt):", type=["eml", "msg", "txt"], accept_multiple_files=True
+)
 
 # Sentiment Analysis Function
 def analyze_sentiment(text):
     blob = TextBlob(text)
-    return "Positive" if blob.sentiment.polarity > 0 else "Negative" if blob.sentiment.polarity < 0 else "Neutral"
+    polarity = blob.sentiment.polarity
+    return "Positive" if polarity > 0 else "Negative" if polarity < 0 else "Neutral"
 
-# Extract Email Body and Sent Date
+# Extract Email Content, Date, and Participants
 def extract_email_content_and_date(email):
     if email.is_multipart():
         for part in email.walk():
-            content_type = part.get_content_type()
-            if content_type == "text/plain":
+            if part.get_content_type() == "text/plain":
                 try:
-                    body = part.get_payload(decode=True).decode(errors="ignore")
-                    return body
+                    return part.get_payload(decode=True).decode(errors="ignore")
                 except:
                     continue
     else:
@@ -44,7 +45,6 @@ def extract_email_content_and_date(email):
             return email.get_payload(decode=True).decode(errors="ignore")
         except:
             return "No content available."
-    
     return "No content available."
 
 def extract_date(email):
@@ -60,159 +60,130 @@ def extract_sender_and_receiver(email):
     return sender, receiver
 
 # Process Uploaded Files
-if st.button("Generate RCA Insights and Sentiment Analysis"):
+if st.button("Analyze Emails for RCA and Sentiment"):
     if not uploaded_files:
         st.error("Please upload at least one email file.")
     else:
-        all_emails_summary = []
-        sentiment_data = []
+        emails_data = []
+        sentiment_list = []
         response_times = []
-        email_participants = []
+        participants_graph = []
         topics_counter = Counter()
-        timelines = []
-        senders = []
-        receivers = []
+        escalations = []
+        timestamps = []
 
-        # Process each uploaded file
         for file in uploaded_files:
-            content = file.read().decode("utf-8") if file.name.endswith(('eml', 'msg', 'txt')) else ""
-            email = message_from_string(content) if content else None
-            subject = email.get("Subject", "No Subject") if email else "No Subject"
-            from_email, to_email = extract_sender_and_receiver(email) if email else ("Unknown Sender", "Unknown Receiver")
-            sent_time = extract_date(email) if email else datetime.now()
-            body = extract_email_content_and_date(email) if email else ""
-            
-            sentiment = analyze_sentiment(body)
+            try:
+                content = file.read().decode("utf-8")
+                email = message_from_string(content)
+                subject = email.get("Subject", "No Subject")
+                sender, receiver = extract_sender_and_receiver(email)
+                sent_time = extract_date(email)
+                body = extract_email_content_and_date(email)
+                sentiment = analyze_sentiment(body)
+                
+                if len(emails_data) > 0:
+                    time_diff = (sent_time - emails_data[-1]["Sent Time"]).total_seconds()
+                else:
+                    time_diff = 0
+                
+                emails_data.append({
+                    "Subject": subject,
+                    "From": sender,
+                    "To": receiver,
+                    "Sent Time": sent_time,
+                    "Body": body,
+                    "Sentiment": sentiment,
+                    "Time Diff (seconds)": time_diff,
+                })
 
-            # Time elapsed between responses
-            if len(all_emails_summary) > 0:
-                time_diff = (sent_time - all_emails_summary[-1]['Sent Time']).total_seconds()
-            else:
-                time_diff = 0
+                sentiment_list.append(sentiment)
+                response_times.append(time_diff)
+                participants_graph.append((sender, receiver))
+                topics_counter.update(body.split())
+                timestamps.append(sent_time)
 
-            # Extract topics for further analysis
-            topics = body.split()
-            topics_counter.update(topics)
+                if sentiment == "Negative":
+                    escalations.append({"From": sender, "Body": body, "Sentiment": sentiment, "Sent Time": sent_time})
+            except Exception as e:
+                st.error(f"Error processing file {file.name}: {str(e)}")
 
-            # Append data for summary
-            all_emails_summary.append({
-                "Subject": subject,
-                "From": from_email,
-                "To": to_email,
-                "Sent Time": sent_time,
-                "Body": body,
-                "Sentiment": sentiment,
-                "Time Diff (seconds)": time_diff,
-            })
-            sentiment_data.append(sentiment)
-            response_times.append(time_diff)
-            email_participants.append((from_email, to_email))
-            senders.append(from_email)
-            receivers.append(to_email)
-            timelines.append(sent_time)
-
-        # Convert to DataFrame for analysis
-        df = pd.DataFrame(all_emails_summary)
+        # Convert to DataFrame
+        df = pd.DataFrame(emails_data)
 
         # Sentiment Analysis Visualization
         st.write("### Sentiment Analysis")
-        sentiment_counts = pd.Series(sentiment_data).value_counts()
+        sentiment_counts = pd.Series(sentiment_list).value_counts()
         fig, ax = plt.subplots()
-        sentiment_counts.plot(kind='bar', ax=ax, color=['green', 'yellow', 'red'])
-        ax.set_title('Sentiment Distribution')
-        ax.set_xlabel('Sentiment')
-        ax.set_ylabel('Count')
+        sentiment_counts.plot(kind="bar", ax=ax, color=["green", "yellow", "red"])
+        ax.set_title("Sentiment Distribution")
+        ax.set_xlabel("Sentiment")
+        ax.set_ylabel("Count")
         st.pyplot(fig)
 
-        # Response Time Analysis
+        # Response Time Insights
         st.write("### Response Time Analysis")
-        avg_response_time = pd.Series(response_times).mean()
-        longest_response_time = pd.Series(response_times).max()
-        shortest_response_time = pd.Series(response_times).min()
-        st.write(f"Average Response Time: {avg_response_time:.2f} seconds")
-        st.write(f"Longest Response Time: {longest_response_time:.2f} seconds")
-        st.write(f"Shortest Response Time: {shortest_response_time:.2f} seconds")
+        avg_time = pd.Series(response_times).mean()
+        max_time = pd.Series(response_times).max()
+        min_time = pd.Series(response_times).min()
+        st.write(f"Average Response Time: {avg_time:.2f} seconds")
+        st.write(f"Longest Response Time: {max_time:.2f} seconds")
+        st.write(f"Shortest Response Time: {min_time:.2f} seconds")
 
-        # Escalation Triggers: Analyze for key phrases and changes in tone
+        # Escalation Triggers
         st.write("### Escalation Triggers")
-        negative_emails = df[df['Sentiment'] == 'Negative']
-        if not negative_emails.empty:
-            st.write("#### Negative Sentiment Emails (Potential Escalations):")
-            st.dataframe(negative_emails)
-        
-        # Plot timeline of email exchanges
+        if escalations:
+            escalation_df = pd.DataFrame(escalations)
+            st.write("#### Emails with Negative Sentiment:")
+            st.dataframe(escalation_df)
+        else:
+            st.write("No negative sentiment detected in the emails.")
+
+        # Timeline of Exchanges
         st.write("### Timeline of Email Exchanges")
         fig, ax = plt.subplots()
-        ax.plot(timelines, range(len(timelines)), marker='o')
-        ax.set_title('Email Exchange Timeline')
-        ax.set_xlabel('Time')
-        ax.set_ylabel('Email Index')
+        ax.plot(timestamps, range(len(timestamps)), marker="o")
+        ax.set_title("Email Exchange Timeline")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Email Index")
         st.pyplot(fig)
 
-        # Network Diagram: Participants in email exchange
-        st.write("### Network Diagram of Participants")
+        # Participants Network Diagram
+        st.write("### Email Participants Network")
         G = nx.Graph()
-        for sender, receiver in email_participants:
-            G.add_edge(sender, receiver)
+        G.add_edges_from(participants_graph)
         plt.figure(figsize=(8, 6))
-        nx.draw(G, with_labels=True, node_size=3000, node_color='lightblue', font_size=10, font_weight='bold')
+        nx.draw(G, with_labels=True, node_size=3000, node_color="lightblue", font_size=10, font_weight="bold")
         st.pyplot()
 
-        # Heatmap for Topic Frequency Analysis
-        st.write("### Heatmap for Topic Frequency Analysis")
-        top_topics = topics_counter.most_common(20)
-        topics_df = pd.DataFrame(top_topics, columns=["Topic", "Frequency"])
+        # Topic Analysis Heatmap
+        st.write("### Heatmap of Common Topics")
+        common_topics = topics_counter.most_common(20)
+        topic_df = pd.DataFrame(common_topics, columns=["Topic", "Frequency"])
         fig, ax = plt.subplots()
-        sns.heatmap(topics_df.set_index("Topic").T, annot=True, cmap="YlGnBu", fmt="d", ax=ax)
+        sns.heatmap(topic_df.set_index("Topic").T, annot=True, cmap="YlGnBu", fmt="d", ax=ax)
         st.pyplot()
 
-        # Culpability Analysis (Sender Contribution to Escalations)
+        # Culpability Analysis
         st.write("### Culpability Analysis")
-        top_senders = negative_emails['From'].value_counts().head(5)
-        st.write("#### Top 5 Senders (Frequent Sources of Negative Emails):")
-        st.bar_chart(top_senders)
-
-        # Additional Metrics
-        st.write("### Additional Metrics")
-        total_emails = len(df)
-        total_participants = len(set(senders + receivers))
-        st.write(f"Total Emails Processed: {total_emails}")
-        st.write(f"Total Participants: {total_participants}")
-
-        # Identifying unrealistic expectations or miscommunications
-        unrealistic_expectations = df[df['Body'].str.contains("unrealistic expectation", case=False, na=False)]
-        st.write("### Unrealistic Expectations or Miscommunications")
-        if not unrealistic_expectations.empty:
-            st.dataframe(unrealistic_expectations)
+        top_sources = df[df["Sentiment"] == "Negative"]["From"].value_counts().head(5)
+        if not top_sources.empty:
+            st.write("#### Top 5 Sources of Escalations:")
+            st.bar_chart(top_sources)
         else:
-            st.write("No instances of unrealistic expectations or miscommunications identified.")
+            st.write("No contributors identified for escalation.")
 
-        # Generate RCA and Final Conclusion Narration
+        # RCA and Conclusion Narration
         rca_narration = """
-        Based on the analysis of the email interactions, the root cause of escalations seems to be a combination of sentiment shifts, delayed responses, and unrealistic expectations from certain participants. 
-        Negative sentiments were observed in several emails, indicating dissatisfaction or urgency that was not adequately addressed. 
-        Furthermore, response times were irregular, with certain delays contributing to frustration among participants. 
-        The involvement of key participants has been flagged for further attention, particularly those responsible for escalating issues.
+        The analysis indicates that escalations were triggered by delays in responses and negative sentiments in emails from key participants. 
+        Setting realistic expectations and ensuring prompt replies can help reduce escalations.
         """
-
-        final_conclusion = """
-        The final conclusion suggests that clear communication, timely responses, and setting realistic expectations would significantly reduce the frequency of escalations in future interactions. 
-        Further training on communication practices and proactive response management could be beneficial for all participants.
-        """
-
-        st.write("### RCA Narration and Final Conclusion")
-        st.write("#### Root Cause Analysis (RCA):")
+        st.write("### Root Cause Analysis (RCA)")
         st.write(rca_narration)
-        st.write("#### Final Conclusion:")
-        st.write(final_conclusion)
 
-        # Text to Speech for RCA and Conclusion (using gTTS)
-        tts = gTTS(text=rca_narration + " " + final_conclusion, lang='en')
-        audio_path = "RCA_Conclusion_Narration.mp3"
-        tts.save(audio_path)
-
-        # Provide Audio File for Download
-        st.write("### Audio Narration (RCA and Final Conclusion)")
-        st.audio(audio_path, format="audio/mp3")
-        os.remove(audio_path)  # Clean up the temporary file after playback
-
+        # Generate Audio Narration
+        tts = gTTS(text=rca_narration, lang="en")
+        audio_file = "rca_analysis.mp3"
+        tts.save(audio_file)
+        st.audio(audio_file)
+        os.remove(audio_file)
