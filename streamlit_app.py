@@ -1,19 +1,23 @@
 import streamlit as st
 import pandas as pd
+import spacy
 import re
-from email import policy
-from email.parser import BytesParser
-from io import BytesIO
-from datetime import datetime
-import spacy  # Using spaCy for NLP and Named Entity Recognition
 import matplotlib.pyplot as plt
 import networkx as nx
 from gtts import gTTS
 import tempfile
 import os
+from email import policy
+from email.parser import BytesParser
+from io import BytesIO
+from datetime import datetime
 
-# Load spaCy model for Named Entity Recognition (NER)
+# Load spaCy model
 nlp = spacy.load("en_core_web_sm")
+
+# Streamlit App Setup
+st.title("Enhanced Email RCA Tool")
+st.write("Upload your email files (EML format) for detailed analysis.")
 
 # Helper: Parse emails
 def parse_email(email_bytes):
@@ -29,48 +33,59 @@ def parse_email(email_bytes):
         st.error(f"Error parsing email: {e}")
         return None, None, None, None, ""
 
-# Helper: Analyze sentiment (based on polarity)
+# Helper: Analyze sentiment
 def analyze_sentiment(text):
-    if not text:
-        return "Neutral"
-    # Basic sentiment analysis (could be enhanced by more advanced techniques)
-    polarity = text.lower().count("urgent") - text.lower().count("please")  # Simplified sentiment
-    if polarity > 0:
-        return "Positive"
-    elif polarity < 0:
-        return "Negative"
-    return "Neutral"
+    sentiment = nlp(text)._.sentiment
+    return sentiment
 
-# Helper: Analyze escalation triggers and root cause (enhanced)
-def analyze_escalation_and_rca(df):
-    escalation_triggers = []
-    rca_summary = []
-    unresolved_issues = []
+# Helper: Perform escalation analysis on email body
+def analyze_escalation(text):
+    escalation_keywords = r"\burgent\b|\bASAP\b|\bimmediate\b"
+    if re.search(escalation_keywords, text, re.IGNORECASE):
+        return True
+    return False
 
-    for _, row in df.iterrows():
-        body = row['Body']
-        doc = nlp(body)  # Using spaCy for NER (Named Entity Recognition)
-        
-        # Detect escalation-related words and entities
-        if re.search(r"\burgent\b|\bASAP\b|\bimmediate\b", body, re.IGNORECASE):
-            escalation_triggers.append(f"Escalation triggered in email from {row['Sender']} to {row['Receiver']}")
-        
-        # Detect named entities that might indicate responsibility (e.g., project names, individuals)
-        entities = [ent.text for ent in doc.ents if ent.label_ in ['PERSON', 'ORG', 'GPE']]
-        if entities:
-            unresolved_issues.append(f"Unresolved issues detected in email from {row['Sender']} mentioning: {', '.join(entities)}")
+# Helper: Perform Named Entity Recognition (NER)
+def extract_entities(text):
+    doc = nlp(text)
+    entities = {
+        "PERSON": [ent.text for ent in doc.ents if ent.label_ == "PERSON"],
+        "ORG": [ent.text for ent in doc.ents if ent.label_ == "ORG"],
+        "GPE": [ent.text for ent in doc.ents if ent.label_ == "GPE"]
+    }
+    return entities
 
-        # Check if this email appears to be a follow-up without resolution
-        if re.search(r"still waiting|no response|following up", body, re.IGNORECASE):
-            unresolved_issues.append(f"Unresolved issue detected: {row['Subject']} (from {row['Sender']} to {row['Receiver']})")
+# Helper: Calculate response times
+def calculate_response_times(df):
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df.sort_values(by="Date", inplace=True)
+    df["Response Time (hours)"] = df["Date"].diff().dt.total_seconds() / 3600
+    return df
 
-    # Provide summary based on escalations and unresolved issues
-    rca_summary.append(f"Escalation Triggers Detected: {', '.join(escalation_triggers) if escalation_triggers else 'None'}")
-    rca_summary.append(f"Unresolved Issues: {', '.join(unresolved_issues) if unresolved_issues else 'None'}")
+# Helper: Perform Root Cause Analysis (RCA)
+def perform_rca(df):
+    if df.empty or len(df) < 2:
+        return "Insufficient data for Root Cause Analysis."
 
-    return '\n'.join(rca_summary)
+    # Identify escalation emails
+    escalation_emails = df[df['Escalation'] == True]
+    
+    # Sentiment Analysis Overview
+    sentiment_counts = df["Sentiment"].value_counts().to_dict()
+    negative_emails = df[df["Sentiment"] == "Negative"]
 
-# Helper: Generate TTS (Text-to-Speech)
+    rca_summary = (
+        f"Root Cause Analysis Summary:\n"
+        f"Total Emails Analyzed: {len(df)}\n"
+        f"Escalation Emails: {len(escalation_emails)}\n"
+        f"Sentiment Overview: {sentiment_counts}\n"
+        f"Negative Emails: {len(negative_emails)}\n"
+        f"Escalation Triggers: {escalation_emails[['Sender', 'Receiver', 'Subject']].to_string(index=False)}"
+    )
+    
+    return rca_summary
+
+# Helper: Generate Text-to-Speech (TTS)
 def generate_tts(text):
     try:
         tts = gTTS(text)
@@ -81,38 +96,68 @@ def generate_tts(text):
         st.error(f"Error generating TTS: {e}")
         return None
 
-# Streamlit App
-st.title("Enhanced Email Escalation and RCA Tool")
-st.write("Upload your email files (EML format) for detailed analysis.")
-
+# Streamlit file uploader
 uploaded_files = st.file_uploader("Upload Emails", type=["eml"], accept_multiple_files=True)
 
 if uploaded_files:
     data = []
+    
     for file in uploaded_files:
         email_bytes = file.read()
         sender, receiver, date, subject, body = parse_email(email_bytes)
+        
+        # Analyze sentiment
         sentiment = analyze_sentiment(body)
+        
+        # Analyze escalation triggers
+        escalation = analyze_escalation(body)
+        
+        # Extract entities (persons, organizations, etc.)
+        entities = extract_entities(body)
+        
+        # Append to data
         data.append({
             "Sender": sender,
             "Receiver": receiver,
             "Date": date,
             "Subject": subject,
             "Body": body,
-            "Sentiment": sentiment
+            "Sentiment": sentiment,
+            "Escalation": escalation,
+            "Entities": entities
         })
 
+    # Create DataFrame
     df = pd.DataFrame(data)
-    
-    # Perform escalation and RCA analysis
-    rca_summary = analyze_escalation_and_rca(df)
+    df = calculate_response_times(df)
 
+    # Display Email Data
     st.subheader("Email Data Overview")
     st.dataframe(df)
 
+    # Visualizations
+    st.subheader("Visualizations")
+    # Sentiment Pie Chart
+    sentiment_counts = df["Sentiment"].value_counts()
+    st.bar_chart(sentiment_counts)
+
+    # Response Time Chart
+    st.line_chart(df["Response Time (hours)"])
+
+    # Network Graph (Sender -> Receiver)
+    G = nx.DiGraph()
+    for _, row in df.iterrows():
+        G.add_edge(row["Sender"], row["Receiver"])
+    plt.figure(figsize=(8, 6))
+    nx.draw(G, with_labels=True, node_size=2000, node_color="lightblue", font_size=10, font_weight="bold")
+    st.pyplot(plt)
+
+    # Root Cause Analysis Summary
     st.subheader("Root Cause Analysis (RCA)")
+    rca_summary = perform_rca(df)
     st.text(rca_summary)
 
+    # Generate and Play TTS for RCA
     audio_file = generate_tts(rca_summary)
     if audio_file:
         st.subheader("RCA Narration")
